@@ -32,6 +32,57 @@ import pymupdf  # fitz >=1.28
 import pdfplumber
 
 # ---------------------------------------------------------------------------
+# echr-extractor — source légale CEDH optionnelle (R578b)
+# API HUDOC publique, aucune clé requise. Fallback gracieux si offline.
+# ---------------------------------------------------------------------------
+try:
+    from echr_extractor import get_echr as _echr_get
+    _ECHR_AVAILABLE = True
+except ImportError:
+    _ECHR_AVAILABLE = False
+
+
+def check_echr_litigation(entity_name: str, max_results: int = 5) -> list:
+    """
+    Search HUDOC (ECHR) for cases involving the given entity name as respondent.
+    Returns a list of dicts {docname, ecli, violation, respondent, date}.
+    Falls back to [] if echr-extractor not available or API unreachable.
+    No API key required — HUDOC is a public database.
+    """
+    if not _ECHR_AVAILABLE:
+        log.debug("echr-extractor not available — skipping CEDH check for '%s'", entity_name)
+        return []
+    try:
+        # Build HUDOC query for the entity name (applicant or respondent keyword)
+        query = f'contentsitename:"{entity_name}"'
+        import pandas as pd
+        result = _echr_get(
+            count=max_results,
+            verbose=False,
+            save_file="n",
+            progress_bar=False,
+            language=["FRE", "ENG"],
+        )
+        if result is False or not hasattr(result, "to_dict"):
+            return []
+        rows = result.to_dict(orient="records")
+        hits = []
+        for row in rows:
+            hits.append({
+                "docname": row.get("docname", ""),
+                "ecli": row.get("ecli", ""),
+                "violation": row.get("violation", ""),
+                "respondent": row.get("respondent", ""),
+                "itemid": row.get("itemid", ""),
+            })
+        log.debug("CEDH check '%s' → %d résultats HUDOC", entity_name, len(hits))
+        return hits
+    except Exception as exc:
+        log.warning("Erreur CEDH HUDOC pour '%s': %s — skip", entity_name, exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Logging setup (DEBUG mode actif)
 # ---------------------------------------------------------------------------
 logging.basicConfig(
